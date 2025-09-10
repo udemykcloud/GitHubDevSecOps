@@ -46,7 +46,7 @@ jobs:
         continue-on-error: true
       - name: SCA (CRDA) Scan
         id: crda_scan
-        uses: redhat-actions/crda@master
+        uses: redhat-actions/crda@main
         with:
           manifest_file: ${{ matrix.manifest_file }}
           snyk_token: ${{ secrets.SNYK_TOKEN }}
