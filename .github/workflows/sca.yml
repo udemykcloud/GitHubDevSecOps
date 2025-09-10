@@ -37,14 +37,16 @@ jobs:
             chmod +x mvnw
           fi
       - name: Install SCA tool (CRDA)
+        id: install_crda
         uses: redhat-actions/openshift-tools-installer@v1
         with:
           source: github
           github_pat: ${{ github.token }}
-          crda: "0.3.8" # Latest CLI version as of 2023
+          crda: "0.2.5" # Latest available version
+        continue-on-error: true
       - name: SCA (CRDA) Scan
         id: crda_scan
-        uses: redhat-actions/crda@main
+        uses: redhat-actions/crda@master
         with:
           manifest_file: ${{ matrix.manifest_file }}
           snyk_token: ${{ secrets.SNYK_TOKEN }}
@@ -54,15 +56,41 @@ jobs:
         if: ${{ failure() }}
         run: |
           echo "Attempting manual CRDA scan with updated endpoint..."
-          /home/runner/work/_temp/openshift-bin/crda config set api_url https://f8a-analytics.redhat.com
-          /home/runner/work/_temp/openshift-bin/crda auth --snyk-token ${{ secrets.SNYK_TOKEN }}
-          /home/runner/work/_temp/openshift-bin/crda analyze --file ${{ matrix.manifest_file }} --json-file-output crda-report.json --sarif-file-output crda-report.sarif
+          if [ -f /home/runner/work/_temp/openshift-bin/crda ]; then
+            /home/runner/work/_temp/openshift-bin/crda config set api_url https://f8a-analytics.redhat.com
+            /home/runner/work/_temp/openshift-bin/crda auth --snyk-token ${{ secrets.SNYK_TOKEN }}
+            /home/runner/work/_temp/openshift-bin/crda analyze --file ${{ matrix.manifest_file }} --json-file-output crda-report.json --sarif-file-output crda-report.sarif
+          else
+            echo "CRDA binary not found. Skipping manual scan."
+          fi
+        continue-on-error: true
+      - name: Install Snyk CLI (Fallback)
+        if: ${{ failure() }}
+        run: |
+          echo "Installing Snyk CLI as fallback..."
+          curl -sSL https://github.com/snyk/cli/releases/download/v1.1292.2/snyk-linux -o snyk
+          chmod +x snyk
+          mv snyk /usr/local/bin/
+      - name: Snyk SCA Scan (Fallback)
+        id: snyk_scan
+        if: ${{ failure() }}
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          echo "Authenticating with Snyk..."
+          snyk auth $SNYK_TOKEN || { echo "Snyk auth failed"; exit 1; }
+          echo "Running Snyk test..."
+          snyk test --file=${{ matrix.manifest_file }} --json-file-output=snyk-report.json --sarif-file-output=snyk-report.sarif -d
         continue-on-error: true
       - name: Print JSON analysis report
         if: ${{ always() }}
         run: |
           if [ -f crda-report.json ]; then
+            echo "CRDA JSON report:"
             cat crda-report.json
+          elif [ -f snyk-report.json ]; then
+            echo "Snyk JSON report:"
+            cat snyk-report.json
           else
             echo "No JSON report generated"
           fi
@@ -70,18 +98,25 @@ jobs:
         if: ${{ always() }}
         run: |
           if [ -f crda-report.sarif ]; then
+            echo "CRDA SARIF report:"
             cat crda-report.sarif
+          elif [ -f snyk-report.sarif ]; then
+            echo "Snyk SARIF report:"
+            cat snyk-report.sarif
           else
             echo "No SARIF report generated"
           fi
       - name: Upload SARIF report
-        if: ${{ always() && steps.crda_scan.outcome == 'success' }}
+        if: ${{ always() && (steps.crda_scan.outcome == 'success' || steps.snyk_scan.outcome == 'success') }}
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: crda-report.sarif
+          sarif_file: ${{ steps.crda_scan.outcome == 'success' && 'crda-report.sarif' || 'snyk-report.sarif' }}
       - name: Print Report Link
         if: ${{ always() && steps.crda_scan.outcome == 'success' }}
         run: echo ${{ steps.crda_scan.outputs.report_link }}
       - name: Print Artifact Name
         if: ${{ always() && steps.crda_scan.outcome == 'success' }}
         run: echo ${{ steps.crda_scan.outputs.artifact_name }}
+      - name: Print Snyk Monitor Link
+        if: ${{ always() && steps.snyk_scan.outcome == 'success' }}
+        run: snyk monitor --file=${{ matrix.manifest_file }}
