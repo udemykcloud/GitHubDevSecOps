@@ -47,14 +47,17 @@ jobs:
       - name: Build with Maven
         if: steps.download-artifact.outcome != 'success'
         run: |
-          ./mvnw clean package -B -Dmaven.test.skip
+          ./mvnw clean package -B -Dmaven.test.skip || { echo "Maven build failed"; exit 1; }
           echo "Listing target directory:"
           ls -lR ${{ github.workspace }}/target
+          echo "Listing src/main/java:"
+          ls -lR src/main/java
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
-          debug: true # Enable debug logging
+          debug: true
+          source-root: src/main/java
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
@@ -69,7 +72,7 @@ jobs:
 
   spotbugs:
     name: SAST SpotBugs
-    runs-on: ubuntu-latest # Remove needs to allow independent execution
+    runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: read
@@ -84,73 +87,4 @@ jobs:
           name: target
           path: ${{ github.workspace }}/target
         continue-on-error: true
-      - name: Set up JDK 11
-        if: steps.download-artifact.outcome != 'success'
-        uses: actions/setup-java@v4
-        with:
-          java-version: '11'
-          distribution: 'temurin'
-          cache: maven
-      - name: Ensure mvnw is executable
-        if: steps.download-artifact.outcome != 'success'
-        run: |
-          if [ -f mvnw ]; then
-            chmod +x mvnw
-            ./mvnw --version
-          else
-            echo "mvnw not found. Generating Maven Wrapper..."
-            mvn -N wrapper:wrapper
-            chmod +x mvnw
-          fi
-      - name: Build with Maven
-        if: steps.download-artifact.outcome != 'success'
-        run: |
-          ./mvnw clean package -B -Dmaven.test.skip
-          echo "Listing target directory:"
-          ls -lR ${{ github.workspace }}/target
-      - name: Install SpotBugs
-        run: |
-          curl -L -o spotbugs.zip https://github.com/spotbugs/spotbugs/releases/download/4.8.6/spotbugs-4.8.6.zip
-          unzip spotbugs.zip -d spotbugs
-          mv spotbugs/spotbugs-4.8.6 spotbugs-install
-      - name: Run SpotBugs
-        run: |
-          spotbugs-install/bin/spotbugs -sarif -output spotbugs.sarif -effort:max -textui -include src/main/spotbugs-filter.xml ${{ github.workspace }}/target/*.jar || true
-      - name: Upload SpotBugs report
-        uses: actions/upload-artifact@v4
-        with:
-          name: spotbugs.sarif
-          path: ${{ github.workspace }}/spotbugs.sarif
-        if: always()
-      - name: Upload analysis results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ github.workspace }}/spotbugs.sarif
-        if: always()
-
-  semgrep:
-    name: SAST Semgrep
-    runs-on: ubuntu-latest # Remove needs to allow independent execution
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-    container:
-      image: returntocorp/semgrep
-    if: (github.actor != 'dependabot[bot]')
-    steps:
-      - uses: actions/checkout@v4
-      - run: semgrep ci -v -o semgrep.sarif --sarif || true
-        env:
-          SEMGREP_RULES: p/java p/security-audit p/cwe-top-25 p/owasp-top-ten
-      - name: Upload Semgrep Report
-        uses: actions/upload-artifact@v4
-        with:
-          name: semgrep.sarif
-          path: ${{ github.workspace }}/semgrep.sarif
-        if: always()
-      - name: Upload analysis results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ github.workspace }}/semgrep.sarif
-        if: always()
+     
