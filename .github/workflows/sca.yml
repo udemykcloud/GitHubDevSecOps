@@ -1,0 +1,87 @@
+name: 20 SCA
+on:
+  workflow_dispatch:
+  workflow_call:
+jobs:
+  sca:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ "ubuntu-latest" ]
+        manifest_file: [ "pom.xml" ]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    name: SCA Java project
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout action
+        uses: actions/checkout@v3
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 11
+          cache: maven
+      - name: Ensure mvnw is executable
+        run: |
+          if [ -f mvnw ]; then
+            chmod +x mvnw
+            ./mvnw --version
+          else
+            echo "mvnw not found. Generating Maven Wrapper..."
+            mvn -N wrapper:wrapper
+            chmod +x mvnw
+          fi
+      - name: Install SCA tool (CRDA)
+        uses: redhat-actions/openshift-tools-installer@v1
+        with:
+          source: github
+          github_pat: ${{ github.token }}
+          crda: "0.3.8" # Latest CLI version as of 2023
+      - name: SCA (CRDA) Scan
+        id: crda_scan
+        uses: redhat-actions/crda@master
+        with:
+          manifest_file: ${{ matrix.manifest_file }}
+          snyk_token: ${{ secrets.SNYK_TOKEN }}
+          fail_on: never
+        continue-on-error: true
+      - name: Fallback CRDA Scan (Manual)
+        if: ${{ failure() }}
+        run: |
+          echo "Attempting manual CRDA scan with updated endpoint..."
+          /home/runner/work/_temp/openshift-bin/crda config set api_url https://f8a-analytics.redhat.com
+          /home/runner/work/_temp/openshift-bin/crda auth --snyk-token ${{ secrets.SNYK_TOKEN }}
+          /home/runner/work/_temp/openshift-bin/crda analyze --file ${{ matrix.manifest_file }} --json-file-output crda-report.json --sarif-file-output crda-report.sarif
+        continue-on-error: true
+      - name: Print JSON analysis report
+        if: ${{ always() }}
+        run: |
+          if [ -f crda-report.json ]; then
+            cat crda-report.json
+          else
+            echo "No JSON report generated"
+          fi
+      - name: Print SARIF analysis report
+        if: ${{ always() }}
+        run: |
+          if [ -f crda-report.sarif ]; then
+            cat crda-report.sarif
+          else
+            echo "No SARIF report generated"
+          fi
+      - name: Upload SARIF report
+        if: ${{ always() && steps.crda_scan.outcome == 'success' }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: crda-report.sarif
+      - name: Print Report Link
+        if: ${{ always() && steps.crda_scan.outcome == 'success' }}
+        run: echo ${{ steps.crda_scan.outputs.report_link }}
+      - name: Print Artifact Name
+        if: ${{ always() && steps.crda_scan.outcome == 'success' }}
+        run: echo ${{ steps.crda_scan.outputs.artifact_name }}
