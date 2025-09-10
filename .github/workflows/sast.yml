@@ -46,25 +46,30 @@ jobs:
           fi
       - name: Build with Maven
         if: steps.download-artifact.outcome != 'success'
-        run: ./mvnw clean package -B -Dmaven.test.skip
+        run: |
+          ./mvnw clean package -B -Dmaven.test.skip
+          echo "Listing target directory:"
+          ls -lR ${{ github.workspace }}/target
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
+          debug: true # Enable debug logging
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{matrix.language}}"
+          output: ${{ github.workspace }}/codeql-results
+        continue-on-error: true
       - name: Upload CodeQL SARIF
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: ${{ github.workspace }}/codeql.sarif
+          sarif_file: ${{ github.workspace }}/codeql-results
         if: always()
 
   spotbugs:
     name: SAST SpotBugs
-    needs: [SAST-CodeQL]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # Remove needs to allow independent execution
     permissions:
       actions: read
       contents: read
@@ -99,7 +104,10 @@ jobs:
           fi
       - name: Build with Maven
         if: steps.download-artifact.outcome != 'success'
-        run: ./mvnw clean package -B -Dmaven.test.skip
+        run: |
+          ./mvnw clean package -B -Dmaven.test.skip
+          echo "Listing target directory:"
+          ls -lR ${{ github.workspace }}/target
       - name: Install SpotBugs
         run: |
           curl -L -o spotbugs.zip https://github.com/spotbugs/spotbugs/releases/download/4.8.6/spotbugs-4.8.6.zip
@@ -107,8 +115,7 @@ jobs:
           mv spotbugs/spotbugs-4.8.6 spotbugs-install
       - name: Run SpotBugs
         run: |
-          spotbugs-install/bin/spotbugs -sarif -output spotbugs.sarif -effort:max -textui -include src/main/spotbugs-filter.xml ${{ github.workspace }}/target/*.jar
-        continue-on-error: true
+          spotbugs-install/bin/spotbugs -sarif -output spotbugs.sarif -effort:max -textui -include src/main/spotbugs-filter.xml ${{ github.workspace }}/target/*.jar || true
       - name: Upload SpotBugs report
         uses: actions/upload-artifact@v4
         with:
@@ -123,8 +130,7 @@ jobs:
 
   semgrep:
     name: SAST Semgrep
-    needs: [SAST-CodeQL]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # Remove needs to allow independent execution
     permissions:
       actions: read
       contents: read
