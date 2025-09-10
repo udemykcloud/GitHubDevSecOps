@@ -26,26 +26,24 @@ jobs:
           distribution: temurin
           java-version: 11
           cache: maven
-      - name: Install SCA tool (CRDA)
-        uses: redhat-actions/openshift-tools-installer@v1
-        with:
-          source: github
-          github_pat: ${{ github.token }}
-          crda: "latest"
-      - name: SCA (CRDA) Scan
-        id: crda_scan
-        uses: redhat-actions/crda@main
-        with:
-          manifest_file: ${{ matrix.manifest_file }}
-          snyk_token: ${{ secrets.SNYK_TOKEN }}
-          fail_on: never
+      - name: Install Snyk CLI
+        run: |
+          curl -sSL https://github.com/snyk/cli/releases/download/v1.1292.2/snyk-linux -o snyk
+          chmod +x snyk
+          mv snyk /usr/local/bin/
+      - name: Snyk SCA Scan
+        id: snyk_scan
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          snyk auth $SNYK_TOKEN
+          snyk test --file=${{ matrix.manifest_file }} --json-file-output=snyk-report.json --sarif-file-output=snyk-report.sarif
       - name: Print JSON analysis report
-        if: ${{ always() && steps.crda_scan.outputs.crda_report_json }}
-        run: cat ${{ steps.crda_scan.outputs.crda_report_json }}
-      - name: Print SARIF analysis report
-        if: ${{ always() && steps.crda_scan.outputs.crda_report_sarif }}
-        run: cat ${{ steps.crda_scan.outputs.crda_report_sarif }}
-      - name: Print Report Link
-        run: echo ${{ steps.crda_scan.outputs.report_link }}
-      - name: Print Artifact Name
-        run: echo ${{ steps.crda_scan.outputs.artifact_name }}
+        if: ${{ always() }}
+        run: cat snyk-report.json
+      - name: Upload SARIF report
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-report.sarif
+      - name: Print Snyk Monitor Link
+        run: snyk monitor --file=${{ matrix.manifest_file }}
