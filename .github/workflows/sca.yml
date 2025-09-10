@@ -54,7 +54,7 @@ jobs:
           snyk test --file=${{ matrix.manifest_file }} --json-file-output=snyk-report.json --sarif-file-output=snyk-report.sarif -d
         continue-on-error: true
       - name: Print JSON analysis report
-        if: ${{ always() }}
+        if: always()
         run: |
           if [ -f snyk-report.json ]; then
             echo "Snyk JSON report:"
@@ -63,7 +63,7 @@ jobs:
             echo "No JSON report generated"
           fi
       - name: Print SARIF analysis report
-        if: ${{ always() }}
+        if: always()
         run: |
           if [ -f snyk-report.sarif ]; then
             echo "Snyk SARIF report:"
@@ -72,10 +72,14 @@ jobs:
             echo "No SARIF report generated"
           fi
       - name: Upload SARIF report
-        if: ${{ always() && steps.snyk_scan.outcome == 'success' }}
+        if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: snyk-report.sarif
       - name: Print Snyk Monitor Link
-        if: ${{ always() && steps.snyk_scan.outcome == 'success' }}
-        run: snyk monitor --file=${{ matrix.manifest_file }}
+        if: always()
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          snyk auth $SNYK_TOKEN || { echo "Snyk auth failed"; exit 1; }
+          snyk monitor --file=${{ matrix.manifest_file }}
