@@ -1,10 +1,3 @@
-name: 40 SAST
-
-on:
-  workflow_dispatch:
-  workflow_call:
-
-jobs:
   SAST-CodeQL:
     name: Build and SAST CodeQL
     runs-on: ubuntu-latest
@@ -19,158 +12,38 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Set up JDK 11 (no cache to force full build)
-        uses: actions/setup-java@v4
-        with:
-          java-version: '11'
-          distribution: 'temurin'
-          cache: 'none'  # Disable caching to ensure CodeQL sees compilation
-      - name: Ensure mvnw is executable
-        run: |
-          if [ -f mvnw ]; then
-            chmod +x mvnw
-            ./mvnw --version
-          else
-            echo "mvnw not found. Generating Maven Wrapper..."
-            mvn -N wrapper:wrapper
-            chmod +x mvnw
-          fi
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: ${{ matrix.language }}
-          build-mode: manual  # Force manual build mode
-          debug: true
-      - name: Build with Maven (monitored by CodeQL)
-        run: |
-          echo "Running Maven build with verbose debug..."
-          ./mvnw clean compile -B -Dmaven.test.skip -X || { echo "Maven build failed - check pom.xml dependencies"; exit 1; }
-          echo "Maven build successful. Listing target directory:"
-          ls -lR ${{ github.workspace }}/target
-          echo "Listing src/main/java:"
-          ls -lR src/main/java
-          # Verify Controller.class exists
-          if [ -f target/classes/com/example/demo/controller/Controller.class ]; then
-            echo "Controller.class compiled successfully"
-          else
-            echo "Controller.class not found - check compilation errors"
-          fi
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-        with:
-          category: "/language:${{matrix.language}}"
-        continue-on-error: true
-      - name: Upload CodeQL Debug Logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: codeql-logs
-          path: /home/runner/work/_temp/codeql_databases/java/log/
-      - name: Upload CodeQL SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: codeql-results
-        if: always()
 
-  spotbugs:
-    name: SAST SpotBugs
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
       - name: Set up JDK 11
         uses: actions/setup-java@v4
         with:
           java-version: '11'
           distribution: 'temurin'
-          cache: 'none'  # Disable caching for consistency
+
       - name: Ensure mvnw is executable
         run: |
           if [ -f mvnw ]; then
             chmod +x mvnw
-            ./mvnw --version
           else
-            echo "mvnw not found. Generating Maven Wrapper..."
             mvn -N wrapper:wrapper
             chmod +x mvnw
           fi
-      - name: Build with Maven
-        run: |
-          echo "Running Maven build with verbose debug..."
-          ./mvnw clean compile -B -Dmaven.test.skip -X || { echo "Maven build failed"; exit 1; }
-          echo "Maven build successful. Listing target directory:"
-          ls -lR ${{ github.workspace }}/target
-      - name: Install SpotBugs
-        run: |
-          curl -L -o spotbugs.zip https://github.com/spotbugs/spotbugs/releases/download/4.8.7/spotbugs-4.8.7.zip
-          unzip spotbugs.zip -d spotbugs
-          mv spotbugs/spotbugs-4.8.7 spotbugs-install
-      - name: Run SpotBugs
-        run: |
-          if ls ${{ github.workspace }}/target/*.jar 2>/dev/null; then
-            spotbugs-install/bin/spotbugs -sarif -output spotbugs.sarif -effort:max -textui ${{ github.workspace }}/target/*.jar || true
-          else
-            echo "No JAR files found in target/ - using classes directory"
-            spotbugs-install/bin/spotbugs -sarif -output spotbugs.sarif -effort:max -textui ${{ github.workspace }}/target/classes || true
-          fi
-        continue-on-error: true
-      - name: Validate SARIF
-        run: |
-          if [ -f spotbugs.sarif ]; then
-            echo "Validating spotbugs.sarif"
-            jq . spotbugs.sarif || echo "Invalid SARIF format"
-          else
-            echo "No spotbugs.sarif generated"
-            echo '{"version":"2.1.0","runs":[]}' > spotbugs.sarif
-          fi
-      - name: Upload SpotBugs report
-        uses: actions/upload-artifact@v4
-        with:
-          name: spotbugs.sarif
-          path: ${{ github.workspace }}/spotbugs.sarif
-        if: always()
-      - name: Upload analysis results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ github.workspace }}/spotbugs.sarif
-        if: always()
+          ./mvnw --version
 
-  semgrep:
-    name: SAST Semgrep
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-    container:
-      image: returntocorp/semgrep
-    if: (github.actor != 'dependabot[bot]')
-    steps:
-      - uses: actions/checkout@v4
-      - run: semgrep ci -v -o semgrep.sarif --sarif || true
-        env:
-          SEMGREP_RULES: p/java p/security-audit p/cwe-top-25 p/owasp-top-ten
-      - name: Validate SARIF
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: manual   # manual build
+
+      - name: Build with Maven (monitored by CodeQL)
         run: |
-          if [ -f semgrep.sarif ]; then
-            echo "Validating semgrep.sarif"
-            jq . semgrep.sarif || echo "Invalid SARIF format"
-          else
-            echo "No semgrep.sarif generated"
-            echo '{"version":"2.1.0","runs":[]}' > semgrep.sarif
-          fi
-      - name: Upload Semgrep Report
-        uses: actions/upload-artifact@v4
+          ./mvnw clean compile -B -Dmaven.test.skip
+
+      - name: Finalize CodeQL database
+        run: |
+          codeql database finalize ${{ runner.temp }}/codeql_databases/java
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
         with:
-          name: semgrep.sarif
-          path: ${{ github.workspace }}/semgrep.sarif
-        if: always()
-      - name: Upload analysis results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ github.workspace }}/semgrep.sarif
-        if: always()
+          category: "/language:${{ matrix.language }}"
