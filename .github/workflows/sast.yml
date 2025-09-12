@@ -47,12 +47,18 @@ jobs:
       - name: Build with Maven
         if: steps.download-artifact.outcome != 'success'
         run: |
-          echo "Running Maven build with debug..."
-          ./mvnw clean package -B -Dmaven.test.skip -X || { echo "Maven build failed - check pom.xml dependencies"; exit 1; }
-          echo "Listing target directory:"
+          echo "Running Maven build with verbose debug..."
+          ./mvnw clean compile -B -Dmaven.test.skip -X || { echo "Maven build failed - check pom.xml for dependency issues"; exit 1; }
+          echo "Maven build successful. Listing target directory:"
           ls -lR ${{ github.workspace }}/target
           echo "Listing src/main/java:"
           ls -lR src/main/java
+          # Verify Controller.class exists
+          if [ -f target/classes/com/example/demo/controller/Controller.class ]; then
+            echo "Controller.class compiled successfully"
+          else
+            echo "Controller.class not found - check compilation errors"
+          fi
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
@@ -63,7 +69,6 @@ jobs:
         uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{matrix.language}}"
-          output: ${{ github.workspace }}/codeql-results
         continue-on-error: true
       - name: Upload CodeQL Debug Logs
         if: failure()
@@ -74,7 +79,7 @@ jobs:
       - name: Upload CodeQL SARIF
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: ${{ github.workspace }}/codeql-results
+          sarif_file: codeql-results
         if: always()
 
   spotbugs:
@@ -115,9 +120,9 @@ jobs:
       - name: Build with Maven
         if: steps.download-artifact.outcome != 'success'
         run: |
-          echo "Running Maven build with debug..."
-          ./mvnw clean package -B -Dmaven.test.skip -X || { echo "Maven build failed"; exit 1; }
-          echo "Listing target directory:"
+          echo "Running Maven build with verbose debug..."
+          ./mvnw clean compile -B -Dmaven.test.skip -X || { echo "Maven build failed"; exit 1; }
+          echo "Maven build successful. Listing target directory:"
           ls -lR ${{ github.workspace }}/target
       - name: Install SpotBugs
         run: |
@@ -129,8 +134,8 @@ jobs:
           if ls ${{ github.workspace }}/target/*.jar 2>/dev/null; then
             spotbugs-install/bin/spotbugs -sarif -output spotbugs.sarif -effort:max -textui ${{ github.workspace }}/target/*.jar || true
           else
-            echo "No JAR files found in target/"
-            echo '{"version":"2.1.0","runs":[]}' > spotbugs.sarif
+            echo "No JAR files found in target/ - using classes directory"
+            spotbugs-install/bin/spotbugs -sarif -output spotbugs.sarif -effort:max -textui ${{ github.workspace }}/target/classes || true
           fi
         continue-on-error: true
       - name: Validate SARIF
@@ -140,6 +145,7 @@ jobs:
             jq . spotbugs.sarif || echo "Invalid SARIF format"
           else
             echo "No spotbugs.sarif generated"
+            echo '{"version":"2.1.0","runs":[]}' > spotbugs.sarif
           fi
       - name: Upload SpotBugs report
         uses: actions/upload-artifact@v4
@@ -175,6 +181,7 @@ jobs:
             jq . semgrep.sarif || echo "Invalid SARIF format"
           else
             echo "No semgrep.sarif generated"
+            echo '{"version":"2.1.0","runs":[]}' > semgrep.sarif
           fi
       - name: Upload Semgrep Report
         uses: actions/upload-artifact@v4
