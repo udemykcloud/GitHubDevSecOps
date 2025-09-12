@@ -48,7 +48,7 @@ jobs:
         if: steps.download-artifact.outcome != 'success'
         run: |
           echo "Running Maven build with verbose debug..."
-          ./mvnw clean compile -B -Dmaven.test.skip -X || { echo "Maven build failed - check pom.xml for dependency issues"; exit 1; }
+          ./mvnw clean compile -B -Dmaven.test.skip -X || { echo "Maven build failed - check pom.xml dependencies"; exit 1; }
           echo "Maven build successful. Listing target directory:"
           ls -lR ${{ github.workspace }}/target
           echo "Listing src/main/java:"
@@ -65,6 +65,7 @@ jobs:
           languages: ${{ matrix.language }}
           debug: true
           source-root: src/main/java
+          build-mode: manual # Force manual build mode for Java
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
