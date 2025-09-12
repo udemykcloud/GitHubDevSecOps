@@ -19,22 +19,13 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Download build artifact
-        id: download-artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: target
-          path: ${{ github.workspace }}/target
-        continue-on-error: true
-      - name: Set up JDK 11
-        if: steps.download-artifact.outcome != 'success'
+      - name: Set up JDK 11 (no cache to force full build)
         uses: actions/setup-java@v4
         with:
           java-version: '11'
           distribution: 'temurin'
-          cache: maven
+          cache: 'none'  # Disable caching to ensure CodeQL sees compilation
       - name: Ensure mvnw is executable
-        if: steps.download-artifact.outcome != 'success'
         run: |
           if [ -f mvnw ]; then
             chmod +x mvnw
@@ -44,8 +35,13 @@ jobs:
             mvn -N wrapper:wrapper
             chmod +x mvnw
           fi
-      - name: Build with Maven
-        if: steps.download-artifact.outcome != 'success'
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: manual  # Force manual build mode
+          debug: true
+      - name: Build with Maven (monitored by CodeQL)
         run: |
           echo "Running Maven build with verbose debug..."
           ./mvnw clean compile -B -Dmaven.test.skip -X || { echo "Maven build failed - check pom.xml dependencies"; exit 1; }
@@ -59,13 +55,6 @@ jobs:
           else
             echo "Controller.class not found - check compilation errors"
           fi
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: ${{ matrix.language }}
-          debug: true
-          source-root: src/main/java
-          build-mode: manual # Force manual build mode for Java
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
@@ -93,22 +82,13 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Download build artifact
-        id: download-artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: target
-          path: ${{ github.workspace }}/target
-        continue-on-error: true
       - name: Set up JDK 11
-        if: steps.download-artifact.outcome != 'success'
         uses: actions/setup-java@v4
         with:
           java-version: '11'
           distribution: 'temurin'
-          cache: maven
+          cache: 'none'  # Disable caching for consistency
       - name: Ensure mvnw is executable
-        if: steps.download-artifact.outcome != 'success'
         run: |
           if [ -f mvnw ]; then
             chmod +x mvnw
@@ -119,7 +99,6 @@ jobs:
             chmod +x mvnw
           fi
       - name: Build with Maven
-        if: steps.download-artifact.outcome != 'success'
         run: |
           echo "Running Maven build with verbose debug..."
           ./mvnw clean compile -B -Dmaven.test.skip -X || { echo "Maven build failed"; exit 1; }
