@@ -6,7 +6,6 @@ on:
 
 jobs:
   license-finder:
-    # Using https://github.com/pivotal/LicenseFinder
     runs-on: ubuntu-latest
     steps:
       - name: 'Checkout Repository'
@@ -22,7 +21,10 @@ jobs:
       - name: 'Download Maven dependencies'
         run: mvn dependency:go-offline --batch-mode
 
-      - name: 'Configure LicenseFinder (licenses & dependencies)'
+      - name: 'Install LicenseFinder'
+        uses: jmservera/license-finder-action@main
+
+      - name: 'Configure Licenses & Dependencies'
         run: |
           license_finder permitted_licenses add MIT
           license_finder permitted_licenses add Apache-2.0
@@ -37,7 +39,7 @@ jobs:
           license_finder approvals add junit-jupiter-engine
           license_finder approvals add javax.annotation-api
 
-      - name: 'Run License Finder (JUnit output)'
+      - name: 'Run License Finder (JUnit XML output)'
         run: license_finder report --format junit > license_finder_report.xml
 
       - name: 'Publish Test Results'
