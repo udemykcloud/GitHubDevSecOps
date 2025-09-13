@@ -1,0 +1,55 @@
+name: 30 License Compliance
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  license-finder:
+    # Using https://github.com/pivotal/LicenseFinder
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Checkout Repository'
+        uses: actions/checkout@v3
+
+      - name: 'Set up JDK 17'
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: 'Download Maven dependencies'
+        run: mvn dependency:go-offline --batch-mode
+
+      - name: 'Configure LicenseFinder (licenses & dependencies)'
+        run: |
+          license_finder permitted_licenses add MIT
+          license_finder permitted_licenses add Apache-2.0
+          license_finder permitted_licenses add BSD
+          license_finder permitted_licenses add EPL1
+
+          license_finder approvals add hamcrest
+          license_finder approvals add hamcrest-core
+          license_finder approvals add hamcrest-library
+          license_finder approvals add junit-jupiter
+          license_finder approvals add junit-jupiter-api
+          license_finder approvals add junit-jupiter-engine
+          license_finder approvals add javax.annotation-api
+
+      - name: 'Run License Finder (JUnit output)'
+        run: license_finder report --format junit > license_finder_report.xml
+
+      - name: 'Publish Test Results'
+        uses: EnricoMi/publish-unit-test-result-action@v2.2.0
+        if: always()
+        with:
+          junit_files: "license_finder_report.xml"
+          check_name: "License Compliance Check"
+
+      - name: 'Upload Dependency Review Report'
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-finder-report
+          path: ${{ github.workspace }}/license_finder_report.xml
