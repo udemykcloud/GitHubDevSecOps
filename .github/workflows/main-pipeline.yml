@@ -1,0 +1,131 @@
+name: 00 - Main CI / CD Pipeline
+
+on:
+  push:
+    paths-ignore:
+      - '**/*.md'
+      - '**/*.txt'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+
+  sca:
+    needs: build
+    name: SCA
+    uses: ./.github/workflows/sca.yml
+    secrets: inherit
+
+  sast:
+    needs: build
+    name: SAST
+    uses: ./.github/workflows/sast.yml
+    secrets: inherit
+
+  license-compliance:
+    needs: build
+    name: License compliance
+    uses: ./.github/workflows/license-compliance.yml
+    secrets: inherit
+
+  docker:
+    needs: build
+    name: Build docker image
+    uses: ./.github/workflows/docker.yml
+    secrets: inherit
+
+  container-image-scan:
+    needs: docker
+    name: Container image scan
+    uses: ./.github/workflows/container-image-scan.yml
+    secrets: inherit
+    with:
+      image-tag: ${{ needs.docker.outputs.image-tag }}
+
+  deploy:
+    needs: docker
+    name: Deploy to EKS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
+
+      - name: Deploy to EKS
+        run: |
+          cat <<EOF | kubectl apply -f -
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: demoapp
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: demoapp
+            template:
+              metadata:
+                labels:
+                  app: demoapp
+              spec:
+                containers:
+                - name: demoapp
+                  image: ${{ needs.docker.outputs.image-tag }}
+                  ports:
+                  - containerPort: 8080
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: demoapp-svc
+          spec:
+            type: LoadBalancer
+            selector:
+              app: demoapp
+            ports:
+            - port: 80
+              targetPort: 8080
+          EOF
+
+      - name: Wait for LoadBalancer URL
+        id: get-lb
+        run: |
+          echo "Waiting for LoadBalancer external DNS..."
+          for i in {1..30}; do
+            LB=$(kubectl get svc demoapp-svc -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+            if [ ! -z "$LB" ]; then
+              echo "APP_URL=http://$LB" >> $GITHUB_ENV
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "Timed out waiting for LoadBalancer"
+          exit 1
+
+  dast:
+    needs: deploy
+    name: DAST Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run ZAP OWASP full scan
+        uses: zaproxy/action-full-scan@v0.9.0
+        with:
+          target: ${{ env.APP_URL }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          cmd_options: '-a -j -l WARN -r report_html.html'
+          allow_issue_writing: true
+
+      - name: Upload html report
+        uses: actions/upload-artifact@v4
+        with:
+          name: DAST_Report
+          path: report_html.html
