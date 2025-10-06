@@ -111,21 +111,12 @@ jobs:
           echo "Timed out waiting for LoadBalancer"
           exit 1
 
+  # 🔽 Replaced deploy + inlined DAST with local DAST reusable workflow
   dast:
-    needs: deploy
-    name: DAST Scan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Run ZAP OWASP full scan
-        uses: zaproxy/action-full-scan@v0.9.0
-        with:
-          target: ${{ env.APP_URL }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          cmd_options: '-a -j -l WARN -r report_html.html'
-          allow_issue_writing: true
+    needs: docker
+    name: DAST Scan (Local)
+    uses: ./.github/workflows/dast.yml
+    secrets: inherit
+    with:
+      image-tag: ${{ needs.docker.outputs.image-tag }}
 
-      - name: Upload html report
-        uses: actions/upload-artifact@v4
-        with:
-          name: DAST_Report
-          path: report_html.html
