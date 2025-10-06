@@ -62,13 +62,26 @@ jobs:
           echo "Performing simple test endpoint call..."
           curl -s http://localhost:8080/ || true
 
-      - name: Run OWASP ZAP Full Scan
-        uses: zaproxy/action-full-scan@v0.10.0
-        with:
-          target: 'http://localhost:8080'
-          token: ${{ secrets.GITHUB_TOKEN }}
-          cmd_options: '-a -j -l WARN -r report_html.html'
-          allow_issue_writing: false
+      - name: Run OWASP ZAP via Docker (manual run, no internal artifact upload)
+        run: |
+          docker run --rm \
+            --network=host \
+            -v $(pwd):/zap/wrk:rw \
+            ghcr.io/zaproxy/zaproxy:stable zap-full-scan.py \
+              -t http://localhost:8080 \
+              -J report_json.json \
+              -w report_md.md \
+              -r report_html.html \
+              -a -j -l WARN
+
+
+     # - name: Run OWASP ZAP Full Scan
+     #   uses: zaproxy/action-full-scan@v0.10.0
+     #   with:
+     #     target: 'http://localhost:8080'
+      #    token: ${{ secrets.GITHUB_TOKEN }}
+       #   cmd_options: '-a -j -l WARN -r report_html.html'
+        #  allow_issue_writing: false
 
       - name: Upload HTML Report
         uses: actions/upload-artifact@v4
