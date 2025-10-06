@@ -67,7 +67,7 @@ jobs:
         with:
           target: 'http://localhost:8080'
           token: ${{ secrets.GITHUB_TOKEN }}
-          cmd_options: '-a -j -l WARN -r report_html.html'
+          cmd_options: '-a -j -l WARN -r report_html.html -I'
           allow_issue_writing: false
 
       - name: Upload HTML Report
