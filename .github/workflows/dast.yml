@@ -62,13 +62,28 @@ jobs:
           echo "Performing simple test endpoint call..."
           curl -s http://localhost:8080/ || true
 
-      - name: Run OWASP ZAP inside container and copy report out
+      - name: Run OWASP ZAP via Docker (stable method)
         run: |
-          docker run --name zapscan --network=host ghcr.io/zaproxy/zaproxy:stable \
-            zap-full-scan.py -t http://localhost:8080 -J /tmp/report_json.json -w /tmp/report_md.md -r /tmp/report_html.html -a -j -l WARN
+          # Create writable temp dir
+          mkdir -p /tmp/zapdata
+          chmod 777 /tmp/zapdata
 
-          docker cp zapscan:/tmp/report_html.html ./report_html.html
-          docker rm zapscan
+          echo "Running ZAP full scan against localhost:8080"
+          docker run --rm \
+            --network=host \
+            -v /tmp/zapdata:/zap/wrk:rw \
+            ghcr.io/zaproxy/zaproxy:stable zap-full-scan.py \
+              -t http://localhost:8080 \
+              -J report_json.json \
+              -w report_md.md \
+              -r report_html.html \
+              -a -j -l WARN
+
+          # Copy reports out so Actions can upload them
+          cp /tmp/zapdata/report_html.html ./report_html.html || true
+          cp /tmp/zapdata/report_md.md ./report_md.md || true
+          cp /tmp/zapdata/report_json.json ./report_json.json || true
+
 
      # - name: Run OWASP ZAP Full Scan
      #   uses: zaproxy/action-full-scan@v0.10.0
@@ -82,7 +97,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: DAST_Report
-          path: report_html.html
+          path: |
+            report_html.html
+            report_md.md
+            report_json.json
 
       - name: Cleanup
         if: always()
