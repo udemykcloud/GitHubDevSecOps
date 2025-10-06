@@ -62,19 +62,13 @@ jobs:
           echo "Performing simple test endpoint call..."
           curl -s http://localhost:8080/ || true
 
-      - name: Run OWASP ZAP via Docker using /tmp mount
+      - name: Run OWASP ZAP inside container and copy report out
         run: |
-          docker run --rm \
-            --network=host \
-            -v /tmp:/zap/wrk:rw \
-            ghcr.io/zaproxy/zaproxy:stable zap-full-scan.py \
-              -t http://localhost:8080 \
-              -J /zap/wrk/report_json.json \
-              -w /zap/wrk/report_md.md \
-              -r /zap/wrk/report_html.html \
-              -a -j -l WARN
+          docker run --name zapscan --network=host ghcr.io/zaproxy/zaproxy:stable \
+            zap-full-scan.py -t http://localhost:8080 -J /tmp/report_json.json -w /tmp/report_md.md -r /tmp/report_html.html -a -j -l WARN
 
-          cp /tmp/report_html.html ./report_html.html
+          docker cp zapscan:/tmp/report_html.html ./report_html.html
+          docker rm zapscan
 
      # - name: Run OWASP ZAP Full Scan
      #   uses: zaproxy/action-full-scan@v0.10.0
