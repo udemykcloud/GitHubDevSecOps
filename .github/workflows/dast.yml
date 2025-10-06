@@ -49,7 +49,94 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           target: 'http://localhost:8080'
           cmd_options: '-a -j -l WARN -z "-addoninstallall" '
-          allow_issue_writing: true
+          allow_issue_writing: truename: 50 - DAST Scan Docker Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      image-tag:
+        type: string
+        description: 'The Docker image (including tag) to scan'
+        required: true
+
+  workflow_call:
+    inputs:
+      image-tag:
+        type: string
+        description: 'The Docker image (including tag) to scan'
+        required: true
+    secrets: inherit
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_TAG: ${{ inputs.image-tag || github.event.inputs.image-tag }}
+
+jobs:
+  dast-scan:
+    name: DAST Scan (Local)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull and run target Docker container
+        run: |
+          echo "Pulling image: ${{ env.IMAGE_TAG }}"
+          docker pull ${{ env.IMAGE_TAG }}
+
+          echo "Starting container..."
+          docker run -d --name demoapp -p 8080:8080 ${{ env.IMAGE_TAG }}
+
+          echo "Waiting for container to start..."
+          for i in {1..15}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080 || true)
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ App is up and responding!"
+              exit 0
+            fi
+            echo "Attempt $i/15: HTTP $STATUS (waiting 5s)"
+            sleep 5
+          done
+
+          echo "❌ App did not start in time. Dumping logs:"
+          docker logs demoapp
+          exit 1
+
+      - name: Smoke test (optional)
+        run: |
+          echo "Performing simple test endpoint call..."
+          curl -s http://localhost:8080/ || true
+
+      - name: Run OWASP ZAP Full Scan
+        uses: zaproxy/action-full-scan@v0.9.0
+        with:
+          target: 'http://localhost:8080'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          cmd_options: '-a -j -l WARN -r report_html.html'
+          allow_issue_writing: false
+
+      - name: Upload HTML Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: DAST_Report
+          path: report_html.html
+
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "Cleaning up..."
+          docker stop demoapp || true
+          docker rm demoapp || true
+          docker container prune --force
+          docker image prune --force
+
 
       - name: Upload html report
         uses: actions/upload-artifact@v4
